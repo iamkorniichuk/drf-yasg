@@ -74,7 +74,19 @@ class InlineSerializerInspector(SerializerInspector):
     def _has_ref_name(self, serializer):
         serializer_meta = getattr(serializer, 'Meta', None)
         return hasattr(serializer_meta, 'ref_name')
-
+        
+    def inline_field_to_swagger_object(self, field, swagger_object_type, use_references, **kwargs):
+        SwaggerType, ChildSwaggerType = self._get_partial_types(field, swagger_object_type, use_references, **kwargs)
+    
+        if isinstance(field, (serializers.ListSerializer, serializers.ListField)):
+            child_schema = self.probe_field_inspectors(field.child, ChildSwaggerType, use_references, **kwargs)  # add kwargs
+            limits = find_limits(field) or {}
+            return SwaggerType(
+                type=openapi.TYPE_ARRAY,
+                items=child_schema,
+                **limits
+            )
+        
     def field_to_swagger_object(self, field, swagger_object_type, use_references, **kwargs):
         SwaggerType, ChildSwaggerType = self._get_partial_types(field, swagger_object_type, use_references, **kwargs)
 
@@ -702,9 +714,9 @@ class ChoiceFieldInspector(FieldInspector):
 class FileFieldInspector(FieldInspector):
     """Provides conversions for ``FileField``\\ s."""
 
-    def field_to_swagger_object(self, field, swagger_object_type, use_references, **kwargs):
+    def file_field_to_swagger_object(self, field, swagger_object_type, use_references, **kwargs):
         SwaggerType, ChildSwaggerType = self._get_partial_types(field, swagger_object_type, use_references, **kwargs)
-
+    
         if isinstance(field, serializers.FileField):
             # swagger 2.0 does not support specifics about file fields, so ImageFile gets no special treatment
             # OpenAPI 3.0 does support it, so a future implementation could handle this better
@@ -715,14 +727,14 @@ class FileFieldInspector(FieldInspector):
                 if getattr(field, 'use_url', rest_framework_settings.UPLOADED_FILES_USE_URL):
                     result.format = openapi.FORMAT_URI
                 return result
-            elif swagger_object_type == openapi.Parameter:
+            elif swagger_object_type in [openapi.Parameter, openapi.Items]:  # support ListField
                 param = SwaggerType(type=openapi.TYPE_FILE)
                 if param['in'] != openapi.IN_FORM:
                     raise err  # pragma: no cover
                 return param
             else:
                 raise err  # pragma: no cover
-
+    
         return NotHandled
 
 
